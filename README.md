@@ -23,8 +23,9 @@ and labels are in Romanian.
 | 12 | Stratified 70/30 train/test split | Also writes `train.csv` / `test.csv` |
 | 15 | Random Forest | Saved as `Position_Predictor.pkl` |
 | 16–17 | Compare RF, Logistic Regression, KNN, SVM | Writes `train_scaled.csv` / `test_scaled.csv` |
-| 18 | RF feature importances | |
-| 19–20 | **Gradio app** | Sliders for each per-90 stat → predicted position probabilities; second app shows the confusion matrices |
+| 18 | **5-fold cross-validation** on the training set | Mean ± std accuracy / weighted F1 per model, next to test accuracy |
+| 19 | RF feature importances | |
+| 20–21 | **Gradio app** | Sliders for each per-90 stat → predicted position probabilities; second app shows the confusion matrices |
 
 ### Target classes
 
@@ -65,7 +66,26 @@ The notebook still shows the saved outputs from the old run until you re-run it.
 
 The name fix changes a few players' rows, which moves players between the
 train and test sets. Random Forest's small drop is within the noise of a
-single split (see issue 9).
+single split.
+
+### Cross-validation (cell 18)
+
+Stratified 5-fold cross-validation on the 587 training players only. The test
+set isn't touched. For LR, KNN and SVM, the `StandardScaler` sits inside a
+`Pipeline`, so each fold's scaler only sees that fold's training data.
+
+| Model | CV accuracy | CV weighted F1 | Test accuracy |
+|---|---|---|---|
+| Logistic Regression | **0.808 ± 0.023** | 0.806 ± 0.022 | 0.770 |
+| Random Forest | 0.789 ± 0.046 | 0.788 ± 0.046 | 0.766 |
+| SVM (RBF) | 0.768 ± 0.044 | 0.765 ± 0.044 | 0.758 |
+| KNN (k=5) | 0.704 ± 0.048 | 0.697 ± 0.050 | 0.683 |
+
+Fold-to-fold spread is about ±0.02–0.05, so the gaps between RF, LR and SVM
+are about the size of the noise. Logistic Regression has the best mean and is
+also the most stable. KNN is clearly worse. Test accuracy is a few points
+below the CV means for every model, which is consistent with a single
+252-player split being noisy.
 
 With Random Forest, goalkeepers are perfect (F1 1.00) and centre-backs are
 strong (0.91). `Varf` (0.67) and `Mijlocas Ofensiv` (0.69) are the weakest
@@ -115,8 +135,8 @@ notebook produces an identical `dataset_final` either way.
 
 ## Known issues
 
-These were found while reviewing the notebook. Issues 1–3 are fixed; the
-rest are still open.
+These were found while reviewing the notebook. Issues 1–3 and 9 are fixed,
+and issue 8 is partly addressed. The rest are still open.
 
 ### Bugs / correctness
 
@@ -162,14 +182,17 @@ rest are still open.
 
 ### Evaluation methodology
 
-8. **The test set is used for model selection.** The RF hyper-parameters
-   (`max_features=5`, `max_depth=10`, …) and the choice between models were
-   evidently tuned against the same 252-player test set that the final
-   scores are reported on, so those scores are optimistic. Use
-   cross-validation (`GridSearchCV` / `cross_val_score`) on the training set
-   and touch the test set once.
-9. **One random split of ~840 samples.** With 19–21 test samples in some
-   classes, a single split is noisy. Report CV mean ± std.
+8. ⚠️ **Partly addressed.** **The test set is used for model selection.**
+   The RF hyper-parameters (`max_features=5`, `max_depth=10`, …) and the
+   choice between models were evidently tuned against the same 252-player
+   test set that the final scores are reported on, so those scores are
+   optimistic. Cell 18 now compares the models with cross-validation on the
+   training set, which is what model choices should be based on. The
+   existing hyper-parameters haven't been re-tuned yet, though. The next
+   step is a `GridSearchCV` over them on `X_train`.
+9. ✅ **Fixed.** **One random split of ~840 samples.** With 19–21 test
+   samples in some classes, a single split is noisy. Cell 18 now reports
+   CV mean ± std.
 10. **`xG_to_xA_Ratio` has extreme outliers** (median 0.8, max 94) because of
     the `+ 0.01` denominator. This hurts the scaled models. Consider
     `xG / (xG + xA + ε)` (bounded 0–1) or a log transform.
@@ -184,7 +207,7 @@ rest are still open.
     inside the cell, or wrap the steps in functions.
 13. **The feature list is defined three times** (cells 10 and 12, and
     implicitly again in the Gradio function). The ratio formulas are also
-    duplicated in cell 7 and cell 19. If one changes, the app silently
+    duplicated in cell 7 and cell 20. If one changes, the app silently
     disagrees with the model. Define them once.
 14. **Unused or duplicated work:** `suturi` is computed twice in cell 3.
     `competitii` is fetched but unused. The imports in cell 16 repeat
