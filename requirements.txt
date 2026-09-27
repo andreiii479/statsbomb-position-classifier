@@ -1,0 +1,11 @@
+statsbombpy
+pandas
+numpy
+pyarrow
+scikit-learn
+matplotlib
+seaborn
+tabulate
+joblib
+gradio
+jupyter

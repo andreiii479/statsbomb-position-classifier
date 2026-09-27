@@ -1,0 +1,10 @@
+# cache-ul cu evenimentele StatsBomb si fisierele generate de notebook
+statsbomb_cache/
+*.parquet
+train.csv
+test.csv
+train_scaled.csv
+test_scaled.csv
+Position_Predictor.pkl
+.ipynb_checkpoints/
+__pycache__/
