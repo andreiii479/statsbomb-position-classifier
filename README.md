@@ -13,7 +13,7 @@ and labels are in Romanian.
 | Cell | Step | Notes |
 |------|------|-------|
 | 0 | Install `statsbombpy`, configure Colab table display | Colab-specific |
-| 1 | **Load event data** for all 128 World Cup matches (64 + 64) | ~458k events × 115 columns. Cached to Parquet after the first run (see below) |
+| 1 | **Load event data** for all 128 World Cup matches (64 + 64) | ~458k events × 115 columns. Cached to Parquet after the first run (see below). Also unifies player names per `player_id` |
 | 2 | Count relevant actions per player | Pass, Shot, Duel, Clearance, Interception, Foul Committed/Won, Dribble, Block, Pressure, Dispossessed, Ball Recovery, Goal Keeper |
 | 3 | Add derived stats | Crosses, tackles, xG, xA (xG of the shot a pass assisted), avg. pass length, avg. shot distance. Missing values → 0 |
 | 4 | Estimate minutes played | Per match: `minute_off − minute_on`, using substitution events and the last event minute of the match |
@@ -50,17 +50,25 @@ midfielders.
 - `xG_to_xA_Ratio = xG / (xA + 0.01)`
 - `Touches_per_Shot = (Pass + Dribble + Duel) / (Shot + 1)`
 
-### Last recorded results (test set, 252 players)
+### Results (test set, 252 players)
 
-| Model | Accuracy | Weighted F1 |
-|---|---|---|
-| Random Forest | 0.774 | 0.772 |
-| Logistic Regression | 0.766 | 0.765 |
-| SVM (RBF) | 0.730 | 0.725 |
-| KNN (k=5) | 0.663 | 0.658 |
+After fixing the scaler leak and the player-name split (issues 1–2 below):
+
+| Model | Accuracy | Weighted F1 | Before the fixes (acc.) |
+|---|---|---|---|
+| Logistic Regression | 0.770 | 0.771 | 0.766 |
+| Random Forest | 0.766 | 0.765 | 0.774 |
+| SVM (RBF) | 0.758 | 0.757 | 0.730 |
+| KNN (k=5) | 0.683 | 0.679 | 0.663 |
+
+The notebook still shows the saved outputs from the old run until you re-run it.
+
+The name fix changes a few players' rows, which moves players between the
+train and test sets. Random Forest's small drop is within the noise of a
+single split (see issue 9).
 
 With Random Forest, goalkeepers are perfect (F1 1.00) and centre-backs are
-strong (0.90). `Varf` (0.59) and `Mijlocas Ofensiv` (0.69) are the weakest
+strong (0.91). `Varf` (0.67) and `Mijlocas Ofensiv` (0.69) are the weakest
 classes, and they get confused with each other.
 
 ## Running it
@@ -107,17 +115,17 @@ notebook produces an identical `dataset_final` either way.
 
 ## Known issues
 
-These were found while reviewing the notebook. None of them have been fixed
-yet, apart from the caching.
+These were found while reviewing the notebook. Issues 1–3 are fixed; the
+rest are still open.
 
 ### Bugs / correctness
 
-1. **Scaler fitted on the test set (data leakage).** Cell 16 calls
-   `scale.fit_transform(X_test)`. It should be `scale.transform(X_test)`.
-   The test data gets scaled with its own mean and std instead of the
-   training set's. Fixing it raises SVM accuracy from 0.730 to 0.758
-   (LR 0.766 → 0.770), so the reported comparison is off.
-2. **Players split by name spelling.** Everything is grouped by
+1. ✅ **Fixed.** **Scaler fitted on the test set (data leakage).** Cell 16
+   called `scale.fit_transform(X_test)`, which scaled the test data with its
+   own mean and std instead of the training set's. It now calls
+   `scale.transform(X_test)`. On the old data, this fix alone raised SVM
+   accuracy from 0.730 to 0.758 (LR 0.766 → 0.770).
+2. ✅ **Fixed.** **Players split by name spelling.** Everything is grouped by
    `['player_id', 'player']`, but StatsBomb spells some players differently
    between 2018 and 2022 (`Phil Foden` / `Philip Foden`, `N'Golo Kanté` /
    `N''Golo Kanté`, `Steven N'Kemboanza…` / `Steven N''Kemboanza…`,
@@ -125,11 +133,15 @@ yet, apart from the caching.
    ends up with two partial rows. This is where the "o dublura, scapata pe
    undeva" duplicate in cell 7 comes from. `drop_duplicates(subset=['player_id'])`
    then throws away one row, so Foden loses 148 of his 274 minutes of data.
-   **Fix:** group by `player_id` only, and keep one name per id (e.g. the
-   most recent).
-3. **The substitution merge relies on names too.** Minutes played are matched
-   on `substitution_replacement` (a name) against `player`. This is fragile
-   for the same reason. It's better to use `substitution_replacement_id`.
+   **Fix:** cell 1 now gives each `player_id` a single name (the one used
+   most often), in both `player` and `substitution_replacement`. The
+   `drop_duplicates` in cell 7 is replaced by an `assert`, so any new
+   duplicates stop the notebook instead of being silently dropped. Foden
+   now has all 274 minutes.
+3. ✅ **Fixed by the same change.** **The substitution merge relies on names
+   too.** Minutes played are matched on `substitution_replacement` (a name)
+   against `player`. Both columns now come from the same id → name map, so
+   the names always agree.
 4. **Estimated minutes played are rough.** Match length is the last minute
    in which any player event happened. Stoppage time and extra time are
    folded in inconsistently, and red cards aren't handled, so a sent-off
