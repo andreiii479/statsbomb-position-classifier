@@ -24,8 +24,9 @@ and labels are in Romanian.
 | 15 | Random Forest | Saved as `Position_Predictor.pkl` |
 | 16–17 | Compare RF, Logistic Regression, KNN, SVM | Writes `train_scaled.csv` / `test_scaled.csv` |
 | 18 | **5-fold cross-validation** on the training set | Mean ± std accuracy / weighted F1 per model, next to test accuracy |
-| 19 | RF feature importances | |
-| 20–21 | **Gradio app** | Sliders for each per-90 stat → predicted position probabilities; second app shows the confusion matrices |
+| 19 | **GridSearchCV** for Random Forest | Tunes on the training set, evaluates the best model once on test, and overwrites `Position_Predictor.pkl` with it. Takes ~3 min on 4 cores (longer on Colab) |
+| 20 | Feature importances of the tuned RF | |
+| 21–22 | **Gradio app** | Sliders for each per-90 stat → predicted position probabilities; second app shows the confusion matrices |
 
 ### Target classes
 
@@ -87,9 +88,34 @@ also the most stable. KNN is clearly worse. Test accuracy is a few points
 below the CV means for every model, which is consistent with a single
 252-player split being noisy.
 
-With Random Forest, goalkeepers are perfect (F1 1.00) and centre-backs are
-strong (0.91). `Varf` (0.67) and `Mijlocas Ofensiv` (0.69) are the weakest
-classes, and they get confused with each other.
+### Random Forest tuning (cell 19)
+
+`GridSearchCV` tries 96 combinations on the training set, using the same
+5 folds as cell 18 and 500 trees:
+
+- `max_depth`: None, 5, 10, 15
+- `max_features`: `'sqrt'`, 3, 5, 8
+- `min_samples_leaf`: 1, 2, 4
+- `class_weight`: `'balanced'`, None
+
+Best: `max_depth=10, max_features=3, min_samples_leaf=1, class_weight='balanced'`.
+That's the original setup with `max_features` lowered from 5 to 3.
+
+| | CV accuracy | Test accuracy | Test weighted F1 |
+|---|---|---|---|
+| Original RF (`max_features=5`) | 0.789 ± 0.046 | 0.766 | 0.765 |
+| **Tuned RF** | **0.802 ± 0.037** | **0.770** | **0.769** |
+| Logistic Regression (for reference) | 0.808 ± 0.023 | 0.770 | 0.771 |
+
+The gain is small. The top 8 combinations all fall within 0.795–0.802, which
+is well inside the fold-to-fold spread, so the result isn't very sensitive to
+these settings. The original configuration ranked 23rd of 96. The tuned RF
+now matches Logistic Regression, but doesn't beat it.
+
+The tuned model is what gets saved to `Position_Predictor.pkl` and used by
+the Gradio app. With it, goalkeepers are perfect (F1 1.00) and centre-backs
+are strong (0.88). `Varf` (0.68) and `Mijlocas Ofensiv` (0.71) are still the
+weakest classes, and they get confused with each other.
 
 ## Running it
 
@@ -135,8 +161,8 @@ notebook produces an identical `dataset_final` either way.
 
 ## Known issues
 
-These were found while reviewing the notebook. Issues 1–3 and 9 are fixed,
-and issue 8 is partly addressed. The rest are still open.
+These were found while reviewing the notebook. Issues 1–3, 8 and 9 are
+fixed. The rest are still open.
 
 ### Bugs / correctness
 
@@ -182,14 +208,13 @@ and issue 8 is partly addressed. The rest are still open.
 
 ### Evaluation methodology
 
-8. ⚠️ **Partly addressed.** **The test set is used for model selection.**
-   The RF hyper-parameters (`max_features=5`, `max_depth=10`, …) and the
-   choice between models were evidently tuned against the same 252-player
-   test set that the final scores are reported on, so those scores are
-   optimistic. Cell 18 now compares the models with cross-validation on the
-   training set, which is what model choices should be based on. The
-   existing hyper-parameters haven't been re-tuned yet, though. The next
-   step is a `GridSearchCV` over them on `X_train`.
+8. ✅ **Fixed.** **The test set is used for model selection.** The RF
+   hyper-parameters (`max_features=5`, `max_depth=10`, …) and the choice
+   between models were evidently tuned against the same 252-player test set
+   that the final scores are reported on, so those scores were optimistic.
+   Cell 18 now compares the models with cross-validation on the training
+   set. Cell 19 tunes the RF with `GridSearchCV` on `X_train` and only then
+   evaluates it on the test set.
 9. ✅ **Fixed.** **One random split of ~840 samples.** With 19–21 test
    samples in some classes, a single split is noisy. Cell 18 now reports
    CV mean ± std.
@@ -207,7 +232,7 @@ and issue 8 is partly addressed. The rest are still open.
     inside the cell, or wrap the steps in functions.
 13. **The feature list is defined three times** (cells 10 and 12, and
     implicitly again in the Gradio function). The ratio formulas are also
-    duplicated in cell 7 and cell 20. If one changes, the app silently
+    duplicated in cell 7 and cell 21. If one changes, the app silently
     disagrees with the model. Define them once.
 14. **Unused or duplicated work:** `suturi` is computed twice in cell 3.
     `competitii` is fetched but unused. The imports in cell 16 repeat
@@ -218,5 +243,5 @@ and issue 8 is partly addressed. The rest are still open.
     `gradio`, `tabulate` and `seaborn` rely on Colab's pre-installed
     packages. There were no pinned dependencies, so `requirements.txt` has
     been added.
-17. **The Gradio app only uses RF**, and only works if cell 15 ran in the same
-    session (it loads `Position_Predictor.pkl` from local disk).
+17. **The Gradio app only uses RF**, and only works if cells 15 and 19 ran
+    in the same session (it loads `Position_Predictor.pkl` from local disk).
